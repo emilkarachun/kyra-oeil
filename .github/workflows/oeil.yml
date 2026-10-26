@@ -1,0 +1,39 @@
+# Œil extérieur de Kyra (protocole de survie n° 3) : hors du serveur, aux 15 minutes, Kyra répond-elle ?
+# Muette trois fois de suite en trois minutes → texto à Emil (une seule fois par panne), puis texto au retour.
+name: Œil extérieur de Kyra
+on:
+  schedule: [{ cron: '*/15 * * * *' }]
+  workflow_dispatch:
+permissions: { actions: read, contents: read }
+concurrency: { group: oeil, cancel-in-progress: false }
+jobs:
+  regarder:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      GH_TOKEN: ${{ github.token }}
+      SID: ${{ secrets.TWILIO_ACCOUNT_SID }}
+      JETON: ${{ secrets.TWILIO_AUTH_TOKEN }}
+      DE: ${{ secrets.TWILIO_NUMERO }}
+      A: ${{ secrets.EMIL_NUMERO }}
+    steps:
+      - name: Regarder
+        run: |
+          texto() { curl -s -o /dev/null -w 'texto %{http_code}\n' -u "$SID:$JETON" --data-urlencode "From=$DE" --data-urlencode "To=$A" --data-urlencode "Body=$1" "https://api.twilio.com/2010-04-01/Accounts/$SID/Messages.json"; }
+          precedent=$(gh run list -R "$GITHUB_REPOSITORY" -w oeil.yml -s completed -L 1 --json conclusion --jq '.[0].conclusion' || echo inconnu)
+          echo "run précédent : $precedent"
+          for essai in 1 2 3; do
+            c=$(curl -s -o /dev/null -w '%{http_code}' -m 20 https://carte.kyracloud.online/ || true)
+            echo "essai $essai : carte $c"
+            case "$c" in 200|302|401)
+              echo "Kyra répond."
+              [ "$precedent" = failure ] && texto "Kyra ici : je réponds de nouveau, vu de l'extérieur. La panne est finie."
+              exit 0;;
+            esac
+            [ $essai -lt 3 ] && sleep 60
+          done
+          a=$(curl -s -o /dev/null -w '%{http_code}' -m 20 https://apercu.kyracloud.online/ || true)
+          if [ "$a" = 000 ]; then quoi="le serveur entier ne répond plus"; else quoi="le serveur répond, mais moi non (le gardien sur place n'a pas réussi à me relancer)"; fi
+          echo "::error::Kyra muette vue de l'extérieur : carte $c, serveur web $a — $quoi"
+          [ "$precedent" != failure ] && texto "Alerte de Kyra, vue de l'extérieur : $quoi depuis quelques minutes. Je te réécris quand ça revient."
+          exit 1
